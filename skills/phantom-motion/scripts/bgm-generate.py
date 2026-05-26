@@ -13,11 +13,8 @@
 
 import argparse, base64, json, os, sys, time, subprocess
 from pathlib import Path
-
-try:
-    import requests
-except ImportError:
-    print("❌ pip install requests"); sys.exit(1)
+import urllib.request
+import urllib.error
 
 # ── API 配置 ──
 MINIMAX_URL = "https://api.minimax.io/v1/music_generation"
@@ -80,9 +77,24 @@ def call_google_lyria(prompt, duration, api_key):
         ]
     }
     
-    resp = requests.post(url, json=payload, headers={"Content-Type": "application/json"}, timeout=300)
-    resp.raise_for_status()
-    data = resp.json()
+    req = urllib.request.Request(
+        url,
+        data=json.dumps(payload).encode("utf-8"),
+        headers={"Content-Type": "application/json"}
+    )
+    try:
+        with urllib.request.urlopen(req, timeout=300) as response:
+            data = json.loads(response.read().decode("utf-8"))
+    except urllib.error.HTTPError as e:
+        print(f"❌ Google Lyria HTTP Error: {e.code} {e.reason}")
+        try:
+            print(f"   Response Body: {e.read().decode('utf-8')}")
+        except Exception:
+            pass
+        raise
+    except Exception as e:
+        print(f"❌ Google Lyria request failed: {e}")
+        raise
     
     if "candidates" not in data or not data["candidates"]:
         msg = data.get("error", {}).get("message", "Unknown Error")
@@ -114,9 +126,24 @@ def call_minimax(prompt, api_key, group_id):
         "audio_setting": {"sample_rate": 44100, "bitrate": 256000, "format": "mp3"}
     }
     url = f"{MINIMAX_URL}?GroupId={group_id}" if group_id else MINIMAX_URL
-    resp = requests.post(url, json=payload, headers=headers, timeout=300)
-    resp.raise_for_status()
-    result = resp.json()
+    req = urllib.request.Request(
+        url,
+        data=json.dumps(payload).encode("utf-8"),
+        headers=headers
+    )
+    try:
+        with urllib.request.urlopen(req, timeout=300) as response:
+            result = json.loads(response.read().decode("utf-8"))
+    except urllib.error.HTTPError as e:
+        print(f"❌ MiniMax HTTP Error: {e.code} {e.reason}")
+        try:
+            print(f"   Response Body: {e.read().decode('utf-8')}")
+        except Exception:
+            pass
+        raise
+    except Exception as e:
+        print(f"❌ MiniMax request failed: {e}")
+        raise
 
     base_resp = result.get("base_resp", {})
     if base_resp.get("status_code", 0) != 0:
@@ -143,13 +170,25 @@ def poll_minimax_task(task_id, api_key, group_id):
     print(f"  ⏳ 轮询 MiniMax 任务 {task_id}...")
     for _ in range(60):
         time.sleep(5)
-        resp = requests.get(url, headers=headers, timeout=30)
-        data = resp.json()
+        req = urllib.request.Request(url, headers=headers)
+        try:
+            with urllib.request.urlopen(req, timeout=30) as response:
+                data = json.loads(response.read().decode("utf-8"))
+        except Exception as e:
+            print(f"⚠️ MiniMax polling request failed: {e}")
+            raise
+
         status = data.get("status") or data.get("data", {}).get("status", "")
         if status.lower() in ("success", "completed"):
             audio_url = data.get("data", {}).get("audio", {}).get("audio_url") or data.get("audio_file")
             if audio_url:
-                return requests.get(audio_url).content
+                req_audio = urllib.request.Request(audio_url)
+                try:
+                    with urllib.request.urlopen(req_audio, timeout=60) as resp_audio:
+                        return resp_audio.read()
+                except Exception as e:
+                    print(f"❌ Failed to download MiniMax audio: {e}")
+                    raise
         elif status.lower() in ("failed", "error"):
             raise Exception("MiniMax 任务失败")
         print("    MiniMax 轮询中...")

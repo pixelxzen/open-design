@@ -24,12 +24,8 @@ import struct
 import sys
 import wave
 from pathlib import Path
-
-try:
-    import requests
-except ImportError:
-    print("❌ 需要 requests 库：pip install requests")
-    sys.exit(1)
+import urllib.request
+import urllib.error
 
 
 # ── 声音配置 ──────────────────────────────────────────────────────
@@ -99,10 +95,25 @@ def generate_single_tts(
     }
 
     url = f"{API_URL}?key={api_key}"
-    resp = requests.post(url, json=data, headers={"Content-Type": "application/json"})
-    resp.raise_for_status()
+    req = urllib.request.Request(
+        url,
+        data=json.dumps(data).encode("utf-8"),
+        headers={"Content-Type": "application/json"}
+    )
+    try:
+        with urllib.request.urlopen(req, timeout=300) as response:
+            result = json.loads(response.read().decode("utf-8"))
+    except urllib.error.HTTPError as e:
+        print(f"❌ Gemini TTS HTTP Error: {e.code} {e.reason}")
+        try:
+            print(f"   Response Body: {e.read().decode('utf-8')}")
+        except Exception:
+            pass
+        raise
+    except Exception as e:
+        print(f"❌ Gemini TTS request failed: {e}")
+        raise
 
-    result = resp.json()
     part = result["candidates"][0]["content"]["parts"][0]
     raw_pcm = base64.b64decode(part["inlineData"]["data"])
 

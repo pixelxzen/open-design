@@ -26,46 +26,116 @@
     </div>
 
     <script>
+        const isRenderMode = window.location.search.includes('render=true');
         let currentSlide = 0;
         const slides = document.querySelectorAll('.slide');
 
-        window.addEventListener('keydown', (e) => {
-            if (document.activeElement.contentEditable === 'true') return;
-            if (e.key === 'ArrowRight' || e.key === ' ') nextSlide();
-            if (e.key === 'ArrowLeft') prevSlide();
-        });
+        // 1. 构建用于录制的确定性全局 Timeline
+        const tl = gsap.timeline({ paused: true });
 
-        function showSlide(index) {
-            slides[currentSlide].classList.remove('active');
-            currentSlide = (index + slides.length) % slides.length;
-            const activeSlide = slides[currentSlide];
-            activeSlide.classList.add('active');
-            runAnimation(activeSlide);
-        }
+        // Slide 1 动画 (t = 0 到 t = 5)
+        tl.addLabel("slide1", 0);
+        tl.from(slides[0].querySelector('h1'), {
+            duration: 2.5,
+            opacity: 0,
+            scale: 1.2,
+            filter: "blur(10px)",
+            ease: "power2.out"
+        }, 0);
+        tl.from(slides[0].querySelector('p'), {
+            duration: 2,
+            opacity: 0,
+            y: 30,
+            ease: "power1.out"
+        }, 0.8);
 
-        function nextSlide() { showSlide(currentSlide + 1); }
-        function prevSlide() { showSlide(currentSlide - 1); }
+        // Slide 2 动画 (t = 5 到 t = 10)
+        tl.addLabel("slide2", 5);
+        tl.from(slides[1].querySelector('h1'), {
+            duration: 2.5,
+            opacity: 0,
+            scale: 1.2,
+            filter: "blur(10px)",
+            ease: "power2.out"
+        }, 5);
+        tl.from(slides[1].querySelector('p'), {
+            duration: 2,
+            opacity: 0,
+            y: 30,
+            ease: "power1.out"
+        }, 5.8);
 
-        function runAnimation(activeSlide) {
-            gsap.set(activeSlide.querySelectorAll('*'), { clearProps: "all" });
-            
-            gsap.from(activeSlide.querySelector('h1'), {
-                duration: 2.5,
-                opacity: 0,
-                scale: 1.2,
-                filter: "blur(10px)",
-                ease: "power2.out"
+        // 注册到全局对象供录制器 Seek
+        window.__timelines = {
+            main: tl
+        };
+
+        window.renderFrame = function(t) {
+            // 根据时间切换 slide 的激活状态
+            if (t >= 5) {
+                if (currentSlide !== 1) {
+                    slides[0].classList.remove('active');
+                    slides[1].classList.add('active');
+                    currentSlide = 1;
+                }
+            } else {
+                if (currentSlide !== 0) {
+                    slides[1].classList.remove('active');
+                    slides[0].classList.add('active');
+                    currentSlide = 0;
+                }
+            }
+            tl.seek(t);
+        };
+
+        // 2. 区分运行模式
+        if (!isRenderMode) {
+            // 交互模式：允许键盘翻页
+            window.addEventListener('keydown', (e) => {
+                if (document.activeElement.contentEditable === 'true') return;
+                if (e.key === 'ArrowRight' || e.key === ' ') nextSlide();
+                if (e.key === 'ArrowLeft') prevSlide();
             });
 
-            gsap.from(activeSlide.querySelector('p'), {
-                duration: 2,
-                opacity: 0,
-                y: 30,
-                delay: 0.8,
-                ease: "power1.out"
-            });
+            function showSlide(index) {
+                slides[currentSlide].classList.remove('active');
+                currentSlide = (index + slides.length) % slides.length;
+                const activeSlide = slides[currentSlide];
+                activeSlide.classList.add('active');
+                runAnimation(activeSlide);
+            }
+
+            function nextSlide() { showSlide(currentSlide + 1); }
+            function prevSlide() { showSlide(currentSlide - 1); }
+
+            function runAnimation(activeSlide) {
+                gsap.set(activeSlide.querySelectorAll('*'), { clearProps: "all" });
+                
+                gsap.from(activeSlide.querySelector('h1'), {
+                    duration: 2.5,
+                    opacity: 0,
+                    scale: 1.2,
+                    filter: "blur(10px)",
+                    ease: "power2.out"
+                });
+
+                gsap.from(activeSlide.querySelector('p'), {
+                    duration: 2,
+                    opacity: 0,
+                    y: 30,
+                    delay: 0.8,
+                    ease: "power1.out"
+                });
+            }
+
+            // 初始化播放第一页
+            runAnimation(slides[0]);
+        } else {
+            // 录制模式下由录制器通过 window.renderFrame(t) 驱动
+            window.renderFrame(0);
         }
 
+        // Editable text 逻辑
         document.querySelectorAll('.editable-text').forEach(el => {
             const id = el.getAttribute('data-id');
             const saved = localStorage.getItem(id);
@@ -75,6 +145,7 @@
             });
         });
 
+        // 导出逻辑
         document.getElementById('export-btn').onclick = () => {
             const content = document.documentElement.outerHTML;
             const blob = new Blob([content], {type: 'text/html'});
@@ -83,8 +154,5 @@
             a.download = 'space-deck.html';
             a.click();
         };
-
-        runAnimation(slides[0]);
-    </script>
 </body>
 </html>
